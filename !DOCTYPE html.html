@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="ms">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DynaVoice — Visualisasi Dinamik</title>
+<style>
+:root{
+  --bg:#07111f; --card:#0d1b2e; --text:#f4f7fb; --muted:#a9b6c7;
+  --p:#4cc9f0; --mp:#55d68a; --mf:#f7d154; --f:#ff9f43; --ff:#ff5d6c;
+}
+*{box-sizing:border-box}
+body{
+  margin:0; min-height:100vh; font-family:system-ui,-apple-system,Segoe UI,sans-serif;
+  background:radial-gradient(circle at 50% 0%,#163457 0%,var(--bg) 48%);
+  color:var(--text); padding:24px;
+}
+.wrap{max-width:1000px;margin:auto}
+header{text-align:center;margin-bottom:20px}
+h1{margin:0;font-size:clamp(2rem,5vw,3.5rem);letter-spacing:-1px}
+.subtitle{color:var(--muted);margin:8px 0 0}
+.card{
+  background:rgba(13,27,46,.9); border:1px solid #243a55; border-radius:24px;
+  padding:22px; box-shadow:0 18px 50px rgba(0,0,0,.25); margin-bottom:18px;
+}
+.controls{display:flex;gap:10px;flex-wrap:wrap;justify-content:center}
+button{
+  border:0;border-radius:14px;padding:13px 18px;font-weight:800;cursor:pointer;
+  background:#eaf2ff;color:#0b1726;font-size:1rem;
+}
+button.primary{background:#55d68a}
+button.warn{background:#f7d154}
+button.dark{background:#21364f;color:white}
+button:disabled{opacity:.45;cursor:not-allowed}
+.status{text-align:center;color:var(--muted);min-height:24px;margin-top:12px}
+.meter-wrap{margin:25px 0}
+.meter{
+  height:52px;border-radius:18px;background:#132238;overflow:hidden;
+  border:2px solid #2c4562;position:relative;
+}
+.fill{
+  height:100%;width:0%;transition:width .08s linear;
+  background:linear-gradient(90deg,var(--p) 0%,var(--mp) 25%,var(--mf) 50%,var(--f) 75%,var(--ff) 100%);
+}
+.scale{display:grid;grid-template-columns:repeat(5,1fr);gap:6px;margin-top:9px}
+.scale div{text-align:center;font-weight:900;font-size:.9rem}
+.level{font-size:clamp(3rem,10vw,6rem);font-weight:1000;text-align:center;line-height:1;margin:20px 0 6px}
+.meaning{text-align:center;color:var(--muted);font-size:1.05rem}
+.p{color:var(--p)} .mp{color:var(--mp)} .mf{color:var(--mf)} .f{color:var(--f)} .ff{color:var(--ff)}
+.target{text-align:center}
+.target .symbol{font-size:4rem;font-weight:1000}
+.challenge-result{text-align:center;font-size:1.25rem;font-weight:800;min-height:32px;margin-top:12px}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+@media(max-width:700px){.grid{grid-template-columns:1fr}}
+.small{font-size:.88rem;color:var(--muted);line-height:1.5}
+footer{text-align:center;color:#71849a;font-size:.8rem;padding:10px}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+  <h1>🎵 DynaVoice</h1>
+  <p class="subtitle">Visualisasi Dinamik Nyanyian • p · mp · mf · f · ff</p>
+</header>
+
+<section class="card">
+  <div class="controls">
+    <button id="start" class="primary">🎤 Aktifkan Mikrofon</button>
+    <button id="calibrate" class="warn" disabled>⚙️ Kalibrasi</button>
+    <button id="challenge" class="dark" disabled>🎯 Cabaran Dinamik</button>
+  </div>
+  <div id="status" class="status">Tekan “Aktifkan Mikrofon” untuk bermula.</div>
+
+  <div class="meter-wrap">
+    <div class="meter"><div id="fill" class="fill"></div></div>
+    <div class="scale">
+      <div class="p">p</div><div class="mp">mp</div><div class="mf">mf</div><div class="f">f</div><div class="ff">ff</div>
+    </div>
+  </div>
+
+  <div id="level" class="level p">p</div>
+  <div id="meaning" class="meaning">Piano — lembut</div>
+</section>
+
+<div class="grid">
+<section class="card target">
+  <h2>🎯 Sasaran</h2>
+  <div id="targetSymbol" class="symbol mf">—</div>
+  <p id="targetText">Tekan “Cabaran Dinamik” untuk mendapatkan arahan.</p>
+  <div id="result" class="challenge-result"></div>
+</section>
+
+<section class="card">
+  <h2>📚 Dinamik Muzik</h2>
+  <p><b class="p">p — Piano</b> · lembut</p>
+  <p><b class="mp">mp — Mezzo piano</b> · sederhana lembut</p>
+  <p><b class="mf">mf — Mezzo forte</b> · sederhana kuat</p>
+  <p><b class="f">f — Forte</b> · kuat</p>
+  <p><b class="ff">ff — Fortissimo</b> · sangat kuat</p>
+  <p class="small">Meter ini menggunakan aras isyarat mikrofon secara relatif. Ia ialah alat visual PdP, bukan alat pengukur SPL profesional.</p>
+</section>
+</div>
+
+<footer>DynaVoice • Prototaip inovasi Pendidikan Muzik</footer>
+</div>
+
+<script>
+let audioContext, analyser, data, stream;
+let running=false, noiseFloor=0.02, sensitivity=1;
+let challengeTarget=null, challengeStart=0, challengeSamples=[];
+
+const levels=[
+ {s:"p", name:"Piano", desc:"lembut", min:0.00, max:0.20, cls:"p"},
+ {s:"mp",name:"Mezzo piano",desc:"sederhana lembut",min:0.20,max:0.40,cls:"mp"},
+ {s:"mf",name:"Mezzo forte",desc:"sederhana kuat",min:0.40,max:0.60,cls:"mf"},
+ {s:"f",name:"Forte",desc:"kuat",min:0.60,max:0.80,cls:"f"},
+ {s:"ff",name:"Fortissimo",desc:"sangat kuat",min:0.80,max:1.01,cls:"ff"}
+];
+
+const $=id=>document.getElementById(id);
+function setStatus(t){$("status").textContent=t}
+
+async function startMic(){
+ try{
+   stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:false,noiseSuppression:false,autoGainControl:false}});
+   audioContext=new (window.AudioContext||window.webkitAudioContext)();
+   const source=audioContext.createMediaStreamSource(stream);
+   analyser=audioContext.createAnalyser();
+   analyser.fftSize=2048;
+   analyser.smoothingTimeConstant=.72;
+   source.connect(analyser);
+   data=new Float32Array(analyser.fftSize);
+   running=true;
+   $("start").disabled=true; $("calibrate").disabled=false; $("challenge").disabled=false;
+   setStatus("Mikrofon aktif. Nyanyikan atau bercakap dekat mikrofon.");
+   requestAnimationFrame(loop);
+ }catch(e){
+   setStatus("Mikrofon tidak dapat diakses. Pastikan kebenaran mikrofon diberikan dan laman menggunakan HTTPS.");
+ }
+}
+
+function rms(){
+ analyser.getFloatTimeDomainData(data);
+ let sum=0;
+ for(let i=0;i<data.length;i++) sum+=data[i]*data[i];
+ return Math.sqrt(sum/data.length);
+}
+
+function loop(){
+ if(!running)return;
+ const raw=rms();
+ let x=Math.max(0,raw-noiseFloor)*sensitivity;
+ let norm=Math.min(1, Math.pow(x/0.18,0.72));
+ const pct=norm*100;
+ $("fill").style.width=pct+"%";
+ const idx=Math.min(4,Math.floor(norm*5));
+ const lv=levels[idx];
+ $("level").textContent=lv.s;
+ $("level").className="level "+lv.cls;
+ $("meaning").textContent=lv.name+" — "+lv.desc;
+
+ if(challengeTarget && performance.now()-challengeStart>650){
+   challengeSamples.push(idx);
+   if(performance.now()-challengeStart>3500){
+     finishChallenge();
+   }
+ }
+ requestAnimationFrame(loop);
+}
+
+async function calibrate(){
+ if(!running)return;
+ setStatus("Kalibrasi 2 saat: sila diam dan jangan bercakap...");
+ await new Promise(r=>setTimeout(r,2200));
+ let vals=[];
+ for(let i=0;i<20;i++){vals.push(rms());await new Promise(r=>setTimeout(r,20));}
+ noiseFloor=Math.max(.003,vals.reduce((a,b)=>a+b,0)/vals.length);
+ setStatus("Kalibrasi selesai. Sekarang cuba nyanyikan satu frasa.");
+}
+
+function challenge(){
+ const pick=levels[Math.floor(Math.random()*levels.length)];
+ challengeTarget=pick;
+ challengeSamples=[];
+ challengeStart=performance.now();
+ $("targetSymbol").textContent=pick.s;
+ $("targetSymbol").className="symbol "+pick.cls;
+ $("targetText").textContent="Nyanyikan satu frasa secara "+pick.name.toUpperCase()+" ("+pick.s+") selama kira-kira 3 saat.";
+ $("result").textContent="Mula sekarang…";
+}
+
+function finishChallenge(){
+ const target=challengeTarget;
+ const counts=[0,0,0,0,0];
+ challengeSamples.forEach(i=>counts[i]++);
+ const avg=challengeSamples.length ? counts.reduce((s,c,i)=>s+c*i,0)/challengeSamples.length : 0;
+ const targetIndex=levels.indexOf(target);
+ const diff=Math.abs(avg-targetIndex);
+ let msg;
+ if(diff<0.65) msg="✅ Tepat! Kawalan dinamik kamu berada hampir dengan sasaran.";
+ else if(diff<1.25) msg="🟡 Hampir! Cuba kawal kekuatan suara dengan lebih konsisten.";
+ else msg="🔵 Cuba lagi. Dengar arahan dinamik dan ubah kekuatan suara.";
+ $("result").textContent="Mesej: " + msg;
+ challengeTarget=null;
+}
+$("start").onclick=startMic;
+$("calibrate").onclick=calibrate;
+$("challenge").onclick=challenge;
+</script>
+</body>
+</html>
